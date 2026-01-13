@@ -1,6 +1,6 @@
 import numpy as np
 import random as rand
-PASS = 0, BET = 1
+PASS, BET = 0, 1
 NUM_ACTIONS = 2
 
 infoset_map = dict()
@@ -13,7 +13,7 @@ class InfosetNode():
         self.strategy = [0.0]*NUM_ACTIONS
         self.strategy_sum = [0.0]*NUM_ACTIONS
 
-    def get_startegy(self, realization_weight):
+    def get_strategy(self, realization_weight):
         normalizing_sum = 0
         for i in range(NUM_ACTIONS):
             self.strategy[i] = max(self.regret_sum[i], 0)
@@ -45,18 +45,44 @@ class InfosetNode():
 
 
 class KuhnCFRTrainer():
-    def train(self, iterations):
+    def __init__(self, iterations):
+        self.iterations = iterations
+
+    def train(self):
         cards = [1, 2, 3]
         util = 0.0
-        for _ in range(iterations):
-            cards = rand.shuffle(cards)
+        for _ in range(self.iterations):
+            rand.shuffle(cards)
             util += self.cfr(cards, "", 1, 1)
-        print(f"Average game value: {util/iterations}")
-        print("X"*100)
-        for key in infoset_map:
+
+        print("=" * 80)
+        print(
+            f"Kuhn Poker CFR Training Results ({self.iterations:,} iterations)")
+        print("=" * 80)
+        print(f"\nAverage game value: {util/self.iterations:.6f}")
+        print("\n" + "=" * 80)
+        print("Final Strategy Distribution")
+        print("=" * 80)
+
+        # Sort information sets for better readability
+        sorted_infosets = sorted(infoset_map.keys())
+
+        for key in sorted_infosets:
             node = infoset_map[key]
-            print(node)
-        print("X"*100)
+            avg_strategy = node.get_avg_strategy()
+
+            # Parse the information set
+            card = key[0]
+            history = key[1:] if len(key) > 1 else ""
+
+            print(
+                f"\nCard: {card}, History: '{history if history else 'START'}'")
+            print(
+                f"  Pass: {avg_strategy[0]:.4f} ({avg_strategy[0]*100:.2f}%)")
+            print(
+                f"  Bet:  {avg_strategy[1]:.4f} ({avg_strategy[1]*100:.2f}%)")
+
+        print("\n" + "=" * 80)
 
     def cfr(self, cards, history, p0, p1):
         plays = len(history)
@@ -73,44 +99,48 @@ class KuhnCFRTrainer():
                         return 1
                     else:
                         return -1
-                elif double_bet:
-                    if player_higher:
-                        return 2
-                    else:
-                        return -2
+                else:
+                    return 1
+            elif double_bet:
+                if player_higher:
+                    return 2
+                else:
+                    return -2
 
-        infoset = cards[player]+history
+        infoset = str(cards[player])+history
 
         if infoset in infoset_map:
             infoset_node = infoset_map[infoset]
         else:
-            infoset_node = InfosetNode()
-            InfosetNode.info_set = infoset
+            infoset_node = InfosetNode(infoset)
             infoset_map[infoset] = infoset_node
 
         if player == 0:
-            strategy = infoset_node.get_startegy(p0)
+            strategy = infoset_node.get_strategy(p0)
         else:
-            strategy = infoset_node.get_startegy(p1)
+            strategy = infoset_node.get_strategy(p1)
 
         utilities = [0.0]*NUM_ACTIONS
         node_util = 0.0
 
         for i in range(NUM_ACTIONS):
-            next_history = history + 'p' if i == 0 else 'b'
+            next_history = history + ('p' if i == 0 else 'b')
             if player == 0:
-                utilities[i] = - \
+                utilities[i] = -1 * \
                     self.cfr(cards, next_history, p0*strategy[i], p1)
             else:
-                utilities[i] = - \
+                utilities[i] = -1 * \
                     self.cfr(cards, next_history, p0, p1*strategy[i])
             node_util += utilities[i]*strategy[i]
 
         for i in range(NUM_ACTIONS):
             regret = utilities[i]-node_util
-            infoset_node.regret_sum[i] += regret*(p0 if player == 0 else p1)
+            infoset_node.regret_sum[i] += regret*(p1 if player == 0 else p0)
+
+        return node_util
 
 
 if __name__ == "__main__":
     iterations = 100_000
     trainer = KuhnCFRTrainer(iterations)
+    trainer.train()
